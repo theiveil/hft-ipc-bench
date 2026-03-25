@@ -2,10 +2,10 @@
 
 >Benchmarking and Optimization of In-Host IPC Message Distribution Mechanisms in a High-Frequency Trading Scenario
 
-#### **1. Scenario Description**
+## **1. Scenario Description**
 This project simulates an **in-host** multi-process high-frequency market data distribution scenario. The core task is to test the performance limits of different inter-process communication mechanisms under extreme conditions: transmitting **fixed-size** micro messages **without persistence requirements**.
 
-#### **2. Comparison Baselines**
+## **2. Comparison Baselines**
 Three widely used and easy-to-use open-source solutions and one self-implemented highly optimized solution are selected:
 
 - **Centralized In-Memory Store:** **Redis Pub/Sub** (Communicating via local loopback or Unix Domain Sockets. Serves as a baseline for traditional IT architectures).
@@ -16,7 +16,7 @@ Three widely used and easy-to-use open-source solutions and one self-implemented
 
 - **Self-Implemented Solution (Lock-Free Shared Memory):** A highly optimized, lock-free ring buffer utilizing `shm_open` and `mmap`. This approach uses C++ `std::atomic` for lock-free Compare-and-Swap (CAS) operations and applies `alignas(64)` cache-line padding to head/tail pointers to eliminate false sharing, aiming for true zero-copy communication.
 
-#### **3. Evaluation Metrics**
+## **3. Evaluation Metrics**
 To accurately reflect HFT requirements, performance will be evaluated across three dimensions:
 
 - **Latency & Determinism (Crucial for HFT):**
@@ -30,7 +30,7 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 - **Resource Footprint & Micro-architecture Profiling:**
     - CPU utilization and Context Switch rates (voluntary vs. involuntary).
     - Memory bandwidth consumption.
-##### **Detailed, practical definitions**
+#### **Detailed, practical definitions**
 1. Latency & Determinism:
 
 	1.1  End-to-End Latency: 
@@ -63,7 +63,7 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 	    - **cswch/s (Voluntary Context Switches):** Happens when a process actively blocks or sleeps to wait for a message.
 	    - **nvcswch/s (Involuntary Context Switches):** Happens when a process runs out of its time slice and is kicked off the CPU by the OS. In HFT, the goal is to pin threads to specific cores and use 100% polling, pushing both of these context switch metrics as close to 0 as possible.
 
-#### **4. Testing Methodology**
+## **4. Testing Methodology**
 
 1. **Scale Variation:** Testing with 1 Producer to 1, 4, 8, and 16 Consumers.
 2. **Message Rate Ramp-up:** Pushing messages at controlled rates (e.g., 100k msg/sec, 500k msg/sec, 1M+ msg/sec) until the consumer lags.

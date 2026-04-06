@@ -8,7 +8,7 @@ This project simulates an **in-host** multi-process high-frequency market data d
 ## **2. Comparison Baselines**
 Three widely used and easy-to-use open-source solutions and one self-implemented highly optimized solution are selected:
 
-- **Centralized In-Memory Store:** **Redis Pub/Sub** (Communicating via local loopback or Unix Domain Sockets. Serves as a baseline for traditional IT architectures).
+- **Centralized In-Memory Store:** **Redis Pub/Sub** (Communicating via Unix Domain Sockets. Serves as a baseline for traditional IT architectures).
 
 - **Standard RPC Framework:** **gRPC** (In-host calls. Represents a modern, widely adopted microservice communication standard).
 

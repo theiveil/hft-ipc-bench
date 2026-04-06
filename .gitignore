@@ -1,0 +1,32 @@
+# Compiled Executables
+producer
+consumer
+bench_producer
+bench_consumer
+bench_server
+bench_client
+
+# gRPC / Protobuf generated files 
+*.pb.cc
+*.pb.h
+
+# Object files and libraries
+*.o
+*.a
+*.so
+
+# Test Output & Temporary data 
+*.bin
+*.tp
+*.ns
+*tsc_ghz.txt
+*.log
+
+# Unix Domain Sockets
+*.sock
+
+# Editor / OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store

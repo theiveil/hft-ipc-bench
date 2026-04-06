@@ -22,8 +22,6 @@ RedisProducer::RedisProducer(const std::string& socket_path,
         throw std::runtime_error("Redis connect error: " + err);
     }
 
-    // UDS 下不涉及 TCP keepalive / TCP_NODELAY。
-    // 低延迟场景下尽量避免额外包装和多余命令。
 }
 
 RedisProducer::~RedisProducer() {

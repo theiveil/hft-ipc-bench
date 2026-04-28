@@ -41,10 +41,6 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 	1.2 Latency Percentiles: p50, p90, p99, p99.9, Max
 	- **Data Collection:** The Consumer records every single one-way latency during the entire test window (e.g., across 10 million messages).
 	- **How to Calculate (Offline Analysis):** After the benchmark finishes, sort all 10 million latency data points in ascending order.
-	
-	1.3 Jitter
-	- **Definition:** The difference in latency between two consecutive messages arriving at the Consumer. This measures transmission stability and predictability.
-	- **How to Calculate (Offline Analysis):** If the latency of message `n` is `L_n`, the jitter is calculated as `J_n = |L_n - L_(n-1)|`. After the test, you calculate the average and maximum jitter across the entire dataset.
 
 2. Throughput
 
@@ -65,6 +61,6 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 
 ## **4. Testing Methodology**
 
-1. **Scale Variation:** Testing with 1 Producer to 1, 4, 8, and 16 Consumers.
-2. **Message Rate Ramp-up:** Pushing messages at controlled rates (e.g., 100k msg/sec, 500k msg/sec, 1M+ msg/sec) until the consumer lags.
+1. **Scale Variation:** Testing with 1 Producer to 1, 2 and 4 Consumers.
+2. **Message Rate Ramp-up:** Pushing messages at controlled rates (e.g., 2M msg/sec, 5M msg/sec, 10M msg/sec).
 3. **Environment Binding:** Utilizing `numactl` and `taskset` to bind producer and consumer processes to specific CPU cores, testing performance when processes share the same L3 cache vs. crossing NUMA nodes.

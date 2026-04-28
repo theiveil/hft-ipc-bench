@@ -23,7 +23,6 @@ RedisConsumer::RedisConsumer(const std::string& socket_path,
         throw std::runtime_error("Redis connect error: " + err);
     }
 
-    // Send the SUBSCRIBE command to Redis.
     redisReply* reply = static_cast<redisReply*>(
         redisCommand(ctx_, "SUBSCRIBE %s", channel_.c_str()));
 
@@ -34,6 +33,13 @@ RedisConsumer::RedisConsumer(const std::string& socket_path,
     }
 
     freeReplyObject(reply);
+
+    // Set a read timeout so redisGetReply() doesn't block forever when the
+    // producer has already finished and no more messages will arrive.
+    timeval read_timeout{};
+    read_timeout.tv_sec  = 5;
+    read_timeout.tv_usec = 0;
+    redisSetTimeout(ctx_, read_timeout);
 }
 
 RedisConsumer::~RedisConsumer() {
@@ -42,7 +48,6 @@ RedisConsumer::~RedisConsumer() {
         ctx_ = nullptr;
     }
 }
-
 
 bool RedisConsumer::recv(Message& msg) {
     void* raw_reply = nullptr;

@@ -22,6 +22,8 @@ RedisProducer::RedisProducer(const std::string& socket_path,
         throw std::runtime_error("Redis connect error: " + err);
     }
 
+    // UDS 下不涉及 TCP keepalive / TCP_NODELAY。
+    // 低延迟场景下尽量避免额外包装和多余命令。
 }
 
 RedisProducer::~RedisProducer() {
@@ -32,18 +34,31 @@ RedisProducer::~RedisProducer() {
 }
 
 void RedisProducer::send(const Message& msg) {
-    redisReply* reply = static_cast<redisReply*>(
-        redisCommand(ctx_,
-                     "PUBLISH %s %b",
-                     channel_.c_str(),
-                     reinterpret_cast<const char*>(&msg),
-                     sizeof(Message)));
-
-    if (reply == nullptr) {
+    // Append command to the local send buffer — does NOT block waiting for reply.
+    int rc = redisAppendCommand(ctx_,
+                                "PUBLISH %s %b",
+                                channel_.c_str(),
+                                reinterpret_cast<const char*>(&msg),
+                                sizeof(Message));
+    if (rc != REDIS_OK)
         throw std::runtime_error(
-            ctx_ ? std::string("PUBLISH failed: ") + ctx_->errstr
-                 : "PUBLISH failed: null context");
-    }
+            ctx_ ? std::string("redisAppendCommand failed: ") + ctx_->errstr
+                 : "redisAppendCommand failed: null context");
+    ++pending_;
 
-    freeReplyObject(reply);
+    // Drain replies in batches to keep the pipeline from growing unbounded.
+    if (pending_ >= PIPELINE_DEPTH)
+        flush();
+}
+
+void RedisProducer::flush() {
+    while (pending_ > 0) {
+        void* raw = nullptr;
+        if (redisGetReply(ctx_, &raw) != REDIS_OK)
+            throw std::runtime_error(
+                ctx_ ? std::string("redisGetReply failed: ") + ctx_->errstr
+                     : "redisGetReply failed");
+        if (raw) freeReplyObject(raw);
+        --pending_;
+    }
 }

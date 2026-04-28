@@ -1,32 +1,59 @@
-# Compiled Executables
-producer
-consumer
-bench_producer
-bench_consumer
-bench_server
-bench_client
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
 
-# gRPC / Protobuf generated files 
-*.pb.cc
-*.pb.h
+# Local assistant / IDE state
+.vscode/
+.idea/
 
-# Object files and libraries
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Benchmark outputs and generated reports/data
+output/
+output.docx
+*.pdf
+*.tex
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
+# Quarto generated/cache files
+.quarto/
+**/*.quarto_ipynb
+
+# Native build artifacts
 *.o
 *.a
 *.so
+*.dylib
+*.dll
+*.exe
 
-# Test Output & Temporary data 
-*.bin
-*.tp
-*.ns
-*tsc_ghz.txt
-*.log
+# Built benchmark binaries
+Redis/producer
+Redis/consumer
+grpc/bench_server
+grpc/bench_client
+shm/bench_producer
+shm/bench_consumer
+zeroMQ/producer
+zeroMQ/consumer
 
-# Unix Domain Sockets
+# Runtime sockets / local traces
 *.sock
-
-# Editor / OS files
-.vscode/
-.idea/
-*.swp
-.DS_Store
+perf.data
+perf.data.old

@@ -1,0 +1,9 @@
+# ══════════════════════════════════════════════════════════════
+# hft-ipc-bench — Full dependency list
+# ══════════════════════════════════════════════════════════════
+
+# ── Python packages (pip install -r requirements.txt) ─────────
+matplotlib>=3.7
+numpy>=1.24
+pandas>=2.0
+seaborn>=0.12

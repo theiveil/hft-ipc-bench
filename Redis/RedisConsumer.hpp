@@ -12,8 +12,8 @@ public:
                   const std::string& channel = "bench_channel");
     ~RedisConsumer();
 
-    RedisConsumer(const RedisConsumer&) = delete; // Non-copyable.
-    RedisConsumer& operator=(const RedisConsumer&) = delete; // Non-copyable.
+    RedisConsumer(const RedisConsumer&) = delete;
+    RedisConsumer& operator=(const RedisConsumer&) = delete;
 
     // Blocking receive. Returns true on a valid message.
     bool recv(Message& msg);

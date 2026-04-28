@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package bench;
+
+// The producer runs as the gRPC server.
+// Each consumer calls Subscribe() and receives a stream of messages.
+// N consumers → N concurrent server-side streams.
+service BenchService {
+    rpc Subscribe(SubRequest) returns (stream BenchMsg);
+}
+
+// Consumer identifies itself so the server can write per-consumer output files.
+message SubRequest {
+    int32 consumer_id  = 1;
+    int32 n_consumers  = 2;   // total expected (used for barrier sync)
+}
+
+// One market-data message (mirrors the C++ struct, avoiding raw-bytes packing
+// so that protobuf serialization overhead is included in the latency).
+message BenchMsg {
+    uint64 seq_id   = 1;
+    uint64 send_tsc = 2;   // set by server right before Write()
+    bytes  payload  = 3;   // 48 bytes of dummy data
+}

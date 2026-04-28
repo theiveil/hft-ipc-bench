@@ -26,9 +26,6 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 - **Throughput (Capacity):**
     - Messages processed per second (MPS) at peak load before queue buildup occurs.
 
-- **Resource Footprint & Micro-architecture Profiling:**
-    - CPU utilization and Context Switch rates (voluntary vs. involuntary).
-    - Memory bandwidth consumption.
 #### **Detailed, practical definitions**
 1. Latency & Determinism:
 
@@ -48,15 +45,6 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 	- **End Point (S2):** The Consumer tracks the Sequence Numbers. When it receives the very last message of that batch, it records the system time `S2`.
 	- **Validation:** You must check the Sequence Numbers to ensure there is no packet loss (for Redis/ZeroMQ) or queue overflow/congestion (for shared memory). The calculated throughput is only valid if there is zero message loss and the Consumer isn't experiencing severe lag.
 	- **How to Calculate:** `MPS = Total Messages / (S2 - S1)`
-
-3. Resource Footprint & Micro-architecture
-	
-    3.1 CPU Load & Context Switches
-	- **Tools:** `pidstat -w -p <PID> 1` or `perf`.
-	- **Metrics to Track:**
-	    - **%usr / %system:** User-space vs. Kernel-space CPU usage. A highly optimized shared memory setup should sit at nearly 100% `%usr`. Meanwhile, gRPC or Redis will likely show higher `%system` usage because they rely on system calls.
-	    - **cswch/s (Voluntary Context Switches):** Happens when a process actively blocks or sleeps to wait for a message.
-	    - **nvcswch/s (Involuntary Context Switches):** Happens when a process runs out of its time slice and is kicked off the CPU by the OS. In HFT, the goal is to pin threads to specific cores and use 100% polling, pushing both of these context switch metrics as close to 0 as possible.
 
 ## **4. Testing Methodology**
 

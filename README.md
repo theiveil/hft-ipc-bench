@@ -22,7 +22,6 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
 - **Latency & Determinism (Crucial for HFT):**
     - End-to-end latency (measured from producer payload creation to consumer parsing).
     - Latency percentiles: **p50, p90, p99, p99.9, and Max Latency** (Tail latency is heavily penalized in HFT).
-    - Jitter (variance in latency over time).
 
 - **Throughput (Capacity):**
     - Messages processed per second (MPS) at peak load before queue buildup occurs.
@@ -38,7 +37,7 @@ To accurately reflect HFT requirements, performance will be evaluated across thr
     - **End Point (T2):** While polling or blocking, the exact moment the Consumer successfully gets the message pointer or finishes deserialization (depending on the IPC tool).
     - **How to Calculate:** The Consumer extracts `send_tsc` (T1) from the message and calculates `T2 - T1`. This difference is in CPU cycles. Later, during **offline analysis (after the test)**, this is converted into nanoseconds (ns) using the CPU frequency.
     
-	1.2 Latency Percentiles: p50, p90, p99, p99.9, Max
+	1.2 Latency Percentiles: p50, p90, p99, p99.9
 	- **Data Collection:** The Consumer records every single one-way latency during the entire test window (e.g., across 10 million messages).
 	- **How to Calculate (Offline Analysis):** After the benchmark finishes, sort all 10 million latency data points in ascending order.
 

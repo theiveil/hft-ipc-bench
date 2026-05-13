@@ -56,11 +56,17 @@ static_assert(sizeof(ConsumerCursor) == 64);
 // The producer NEVER blocks: it overwrites the oldest slot if the ring is full.
 // Consumers detect overwrites (laps) and torn reads via the SeqLock in each slot.
 //
-// SHM size ≈ 64 + 16×64 + 131 072×128 ≈ 16 MB
+// SHM size ≈ 64 + 64 + 64 + 4×64 + 131 072×128 ≈ 16 MB
 //
 struct alignas(64) RingBuffer {
     alignas(64) std::atomic<uint64_t> head{0};
     char _pad_head[64 - sizeof(std::atomic<uint64_t>)];
+
+    alignas(64) std::atomic<uint32_t> ready_count{0};
+    char _pad_ready[64 - sizeof(std::atomic<uint32_t>)];
+
+    alignas(64) std::atomic<bool> start_flag{false};
+    char _pad_start[64 - sizeof(std::atomic<bool>)];
 
     ConsumerCursor tails[MAX_CONSUMERS];  // one 64-byte cursor per consumer
 

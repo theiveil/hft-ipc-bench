@@ -38,11 +38,20 @@
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 static constexpr uint64_t WARMUP_SENTINEL = 0xFFFF'FFFF'FFFF'0000ULL;
+static volatile uint64_t pre_touch_sink = 0;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 static inline uint64_t rdtsc_now() {
     _mm_lfence();
     return __rdtsc();
+}
+
+static void pre_touch_ring(RingBuffer* rb) {
+    uint64_t acc = 0;
+    for (uint32_t i = 0; i < RING_SIZE; ++i) {
+        acc ^= rb->slots[i].seq.load(std::memory_order_relaxed);
+    }
+    pre_touch_sink = acc;
 }
 
 static uint64_t now_ns() {
@@ -91,8 +100,6 @@ int main(int argc, char* argv[]) {
                             + "_C" + std::to_string(n_consumers)
                             + "_MPS" + std::to_string(target_mps);
 
-    pin_to_core(consumer_id + 1);  // consumer 0→core1, 1→core2, 2→core3, 3→core4
-
     if (consumer_id >= MAX_CONSUMERS) {
         std::cerr << "consumer_id " << consumer_id
                   << " exceeds MAX_CONSUMERS " << MAX_CONSUMERS << "\n";
@@ -113,6 +120,13 @@ int main(int argc, char* argv[]) {
         std::cout << "Consumer " << consumer_id
                   << " attached to " << shm_name
                   << " (cursor slot " << consumer_id << "), spin-polling...\n";
+
+        pin_to_core(consumer_id + 1);  // consumer 0→core1, 1→core2, 2→core3, 3→core4
+        pre_touch_ring(rb);
+        rb->ready_count.fetch_add(1, std::memory_order_acq_rel);
+        while (!rb->start_flag.load(std::memory_order_acquire)) {
+            _mm_pause();
+        }
 
         uint64_t last_seq_seen = UINT64_MAX;
 

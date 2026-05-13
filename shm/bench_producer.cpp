@@ -34,7 +34,7 @@
 
 // ── Config ─────────────────────────────────────────────────────────────────────
 static constexpr uint64_t WARMUP_SENTINEL = 0xFFFF'FFFF'FFFF'0000ULL;
-static constexpr int      N_WARMUP        = 10'000;
+static constexpr uint32_t N_WARMUP        = RING_SIZE;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 static inline uint64_t rdtsc_now() {
@@ -101,29 +101,34 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const double tsc_ghz = estimate_tsc_ghz();
-    std::ofstream(out_dir + "/bench_shm" + n_tag + "_tsc_ghz.txt") << tsc_ghz << "\n";
-    std::cout << "TSC freq: " << tsc_ghz << " GHz\n";
-
     const std::string shm_name = "/bench_shm" + n_tag;
     RingBuffer* rb = create_shm(shm_name);
     std::cout << "Created " << shm_name
               << "  (" << sizeof(RingBuffer) / (1 << 20) << " MB)\n";
 
-    // Give consumers time to mmap and start polling
-    std::cout << "Waiting 2s for " << n_consumers << " consumer(s) to attach...\n";
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    std::cout << "Waiting for " << n_consumers << " consumer(s) to get ready...\n";
+    while (rb->ready_count.load(std::memory_order_acquire) <
+           static_cast<uint32_t>(n_consumers)) {
+        _mm_pause();
+    }
+
+    const double tsc_ghz = estimate_tsc_ghz();
+    std::ofstream(out_dir + "/bench_shm" + n_tag + "_tsc_ghz.txt") << tsc_ghz << "\n";
+    std::cout << "TSC freq: " << tsc_ghz << " GHz\n";
 
     // ── Warmup ─────────────────────────────────────────────────────────────────
-    for (int w = 0; w < N_WARMUP; ++w) {
+    for (uint32_t w = 0; w < N_WARMUP; ++w) {
         Message msg{};
-        msg.seq_id   = WARMUP_SENTINEL + static_cast<uint64_t>(w);
+        msg.seq_id   = WARMUP_SENTINEL;
         msg.send_tsc = rdtsc_now();
         std::memset(msg.payload.data(), w & 0xFF, msg.payload.size());
         rb_push(rb, msg);
     }
-    // Let consumers drain warmup before the real clock starts
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    const uint64_t start_tail = rb->head.load(std::memory_order_acquire);
+    for (int cid = 0; cid < n_consumers; ++cid) {
+        rb->tails[cid].tail.store(start_tail, std::memory_order_release);
+    }
+    rb->start_flag.store(true, std::memory_order_release);
 
     // ── Benchmark ──────────────────────────────────────────────────────────────
     const uint64_t s1 = now_ns();

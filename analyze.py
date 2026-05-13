@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Offline analysis + visualisation for hft-ipc-bench.
+Offline analysis + radar visualisation for hft-ipc-bench.
 
 File naming convention (all in one flat directory):
   bench_{ipc}_N{n}_C{c}_tsc_ghz.txt
@@ -11,15 +11,21 @@ File naming convention (all in one flat directory):
 Modes
 -----
   # Legacy: reads /tmp/ with old un-tagged names (no matplotlib)
-  python3 analyze.py [shm|zmq|grpc|redis|all]
+  python3 analyze.py [shm|uds|zmq|grpc|redis|all]
 
   # Sweep mode: called by run_bench.sh
   python3 analyze.py --out-dir   ./output        \
                      --plots-dir ./output/plots   \
                      --csv-out   ./output/analysis_summary.csv \
-                     --ipc-list  shm zmq grpc redis \
+                     --ipc-list  shm uds zmq grpc redis \
                      --msg-list  100000 1000000 10000000 \
                      --cons-list 1 2 4
+
+  SHM rows in sweep mode are read from output/shm_final.csv. If that file is
+  missing and output/newshm*.csv exists, analyze_shm_csv.py is used to generate
+  it first. Raw SHM latency .bin files are not analyzed by this script.
+  Sweep mode writes analysis_summary.csv, then builds radar plots from that CSV
+  data. CDF and scatter plots are no longer generated.
 """
 
 import argparse
@@ -29,7 +35,10 @@ import math
 import os
 import struct
 import sys
+from collections import defaultdict
 from pathlib import Path
+
+from analyze_shm_csv import aggregate_shm_csvs
 
 # ── Optional imports ──────────────────────────────────────────────────────────
 Path("/tmp/matplotlib").mkdir(parents=True, exist_ok=True)
@@ -58,7 +67,6 @@ try:
         matplotlib.use("Agg")
         matplotlib.set_loglevel("error")
         import matplotlib.pyplot as plt
-        import matplotlib.ticker as mticker
         import numpy as np
     HAS_MPL = True
 except ImportError:
@@ -72,14 +80,15 @@ except ImportError:
     pass
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-IPC_COLOR = {"shm": "#2196F3", "zmq": "#4CAF50", "grpc": "#FF9800", "redis": "#F44336"}
+IPC_COLOR = {"shm": "#2196F3", "uds": "#9C27B0", "zmq": "#4CAF50", "grpc": "#FF9800", "redis": "#F44336"}
 IPC_LABEL = {
     "shm":   "SHM (lock-free)",
+    "uds":   "UDS stream",
     "zmq":   "ZeroMQ PUB/SUB",
     "grpc":  "gRPC streaming",
     "redis": "Redis Pub/Sub",
 }
-SUPPORTED = ["shm", "zmq", "grpc", "redis"]
+SUPPORTED = ["shm", "uds", "zmq", "grpc", "redis"]
 CSV_FIELDS = [
     "ipc",
     "n_msgs",
@@ -182,6 +191,77 @@ def write_csv(csv_file: Path, rows: list) -> None:
         writer.writerows(rows)
 
 
+def read_summary_rows(csv_file: Path) -> list:
+    with csv_file.open(newline="") as f:
+        reader = csv.DictReader(f)
+        return [{field: row.get(field, "") for field in CSV_FIELDS} for row in reader]
+
+
+def build_summary_combo(rows: list) -> dict:
+    combo = {}
+    for row in rows:
+        cid = int(float(row["consumer_id"]))
+        combo[cid] = {
+            "p50": float(row["p50_ns"]),
+            "p90": float(row["p90_ns"]),
+            "p99": float(row["p99_ns"]),
+            "p999": float(row["p999_ns"]),
+            "mps": float(row["throughput_mps"]),
+        }
+    return combo
+
+
+def build_radar_combos(rows: list) -> dict:
+    by_combo = defaultdict(lambda: defaultdict(list))
+    for row in rows:
+        try:
+            key = (
+                int(float(row["n_msgs"])),
+                int(float(row["n_cons"])),
+                int(float(row["target_mps"])),
+            )
+            ipc = row["ipc"]
+            by_combo[key][ipc].append(row)
+        except (TypeError, ValueError):
+            continue
+
+    combos = {}
+    for key, by_ipc in by_combo.items():
+        combo = {}
+        for ipc, ipc_rows in by_ipc.items():
+            values = {}
+            for src, dst in [
+                ("p50_ns", "p50"),
+                ("p90_ns", "p90"),
+                ("p99_ns", "p99"),
+                ("p999_ns", "p999"),
+                ("throughput_mps", "mps"),
+            ]:
+                nums = []
+                for row in ipc_rows:
+                    try:
+                        nums.append(float(row[src]))
+                    except (TypeError, ValueError):
+                        pass
+                values[dst] = mean(nums)
+            combo[ipc] = values
+        combos[key] = combo
+    return combos
+
+
+def load_shm_final_rows(out_dir: Path) -> list:
+    shm_final = out_dir / "shm_final.csv"
+    inputs = sorted(out_dir.glob("newshm*.csv"))
+    if inputs and (
+        not shm_final.exists()
+        or max(path.stat().st_mtime for path in inputs) > shm_final.stat().st_mtime
+    ):
+        aggregate_shm_csvs(inputs, shm_final)
+    if not shm_final.exists():
+        return []
+    return read_summary_rows(shm_final)
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # Analysis report — returns plot data plus CSV rows
 # ════════════════════════════════════════════════════════════════════════════
@@ -254,93 +334,17 @@ def text_report(base: Path, ipc: str, n_tag: str,
 
 
 # ════════════════════════════════════════════════════════════════════════════
-# Plot 1 — CDF  (one figure per N×C, one curve per IPC)
+# Plot — Radar  (MPS + latency axes, one per N×C×MPS)
 # ════════════════════════════════════════════════════════════════════════════
 
-def plot_cdf(combo: dict, n_msgs: int, n_cons: int, out: Path):
-    """combo: {ipc: {cid: {ns_sorted, ...}}}"""
-    if not HAS_MPL:
-        return
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.set_title(f"Latency CDF — N={n_msgs:,}  C={n_cons}",
-                 fontsize=14, fontweight="bold")
-
-    for ipc in SUPPORTED:
-        d = combo.get(ipc, {}).get(0)
-        if not d:
-            continue
-        sd = d["ns_sorted"]
-        n  = len(sd)
-        if n == 0:
-            continue
-        step = max(1, n // 5000)
-        xs = sd[::step]
-        ys = [(i + 1) / n for i in range(0, n, step)]
-        if xs[-1] != sd[-1]:
-            xs.append(sd[-1]); ys.append(1.0)
-        ax.plot(xs, ys, label=IPC_LABEL[ipc], color=IPC_COLOR[ipc], linewidth=2)
-
-    ax.set_xlabel("Latency (ns)", fontsize=12)
-    ax.set_ylabel("Cumulative Probability", fontsize=12)
-    ax.set_xscale("log")
-    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0, decimals=0))
-    for pct, label in [(0.50, "p50"), (0.99, "p99")]:
-        ax.axhline(pct, color="grey", linestyle=":", linewidth=0.8, alpha=0.7)
-        ax.text(ax.get_xlim()[0] or 1, pct + 0.002, f" {label}",
-                color="grey", fontsize=8, va="bottom")
-    ax.legend(fontsize=11)
-    ax.grid(True, which="both", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# Plot 2 — Latency over time scatter  (one per IPC × N × C, consumer 0)
-# ════════════════════════════════════════════════════════════════════════════
-
-def plot_scatter(ns: list, ipc: str, n_msgs: int, n_cons: int, out: Path):
-    if not HAS_MPL:
-        return
-    n    = len(ns)
-    step = max(1, n // 8000)
-    xs   = list(range(0, n, step))
-    ys   = ns[::step]
-
-    sd   = sorted(ys)
-    p50  = percentile(sd, 50)
-    p99  = percentile(sd, 99)
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.set_title(f"Latency over Time — {IPC_LABEL[ipc]}  N={n_msgs:,}  C={n_cons}",
-                 fontsize=13, fontweight="bold")
-    ax.scatter(xs, ys, s=1.5, alpha=0.35, color=IPC_COLOR[ipc], rasterized=True)
-    ax.axhline(p50, color="lime",   linestyle="--", linewidth=1.2,
-               label=f"p50 = {p50:.0f} ns")
-    ax.axhline(p99, color="tomato", linestyle="--", linewidth=1.2,
-               label=f"p99 = {p99:.0f} ns")
-    ax.set_xlabel("Message index", fontsize=11)
-    ax.set_ylabel("Latency (ns)",  fontsize=11)
-    ax.set_yscale("log")
-    ax.legend(fontsize=10)
-    ax.grid(True, which="both", alpha=0.25)
-    fig.tight_layout()
-    fig.savefig(out, dpi=150)
-    plt.close(fig)
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# Plot 3 — Radar  (MPS + latency axes, one per N×C)
-# ════════════════════════════════════════════════════════════════════════════
-
-def plot_radar(combo: dict, n_msgs: int, n_cons: int, out: Path):
-    """combo: {ipc: {cid: {mps, p50, p99, p999}}}"""
+def plot_radar(combo: dict, n_msgs: int, n_cons: int, target_mps: int, out: Path):
+    """combo: {ipc: {mps, p50, p99, p999}}"""
     if not HAS_MPL:
         return
 
     metrics = {}
     for ipc in SUPPORTED:
-        d = combo.get(ipc, {}).get(0)
+        d = combo.get(ipc)
         if d:
             metrics[ipc] = d
     if len(metrics) < 2:
@@ -367,7 +371,7 @@ def plot_radar(combo: dict, n_msgs: int, n_cons: int, out: Path):
     angles   = [2 * math.pi * i / N_AX for i in range(N_AX)] + [0]
 
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
-    ax.set_title(f"IPC Radar — N={n_msgs:,}  C={n_cons}",
+    ax.set_title(f"IPC Radar — N={n_msgs:,}  C={n_cons}  MPS={target_mps:,}",
                  fontsize=14, fontweight="bold", pad=22)
 
     for ipc, d in metrics.items():
@@ -396,6 +400,18 @@ def run_sweep(out_dir: Path, plots_dir: Path, ipc_list, msg_list, cons_list, mps
               csv_out: Path):
     plots_dir.mkdir(parents=True, exist_ok=True)
     csv_rows = []
+    shm_rows_by_combo = defaultdict(list)
+    if "shm" in ipc_list:
+        for row in load_shm_final_rows(out_dir):
+            try:
+                key = (
+                    int(float(row["n_msgs"])),
+                    int(float(row["n_cons"])),
+                    int(float(row["target_mps"])),
+                )
+            except (TypeError, ValueError):
+                continue
+            shm_rows_by_combo[key].append(row)
 
     for n_msgs in msg_list:
         for n_cons in cons_list:
@@ -404,6 +420,13 @@ def run_sweep(out_dir: Path, plots_dir: Path, ipc_list, msg_list, cons_list, mps
                 combo   = {}
 
                 for ipc in ipc_list:
+                    if ipc == "shm":
+                        rows = shm_rows_by_combo.get((n_msgs, n_cons, mps), [])
+                        if rows:
+                            combo[ipc] = build_summary_combo(rows)
+                            csv_rows.extend(rows)
+                        continue
+
                     # Check whether any file for this combo exists
                     if not _tsc_path(out_dir, ipc, n_tag).exists():
                         continue
@@ -414,28 +437,12 @@ def run_sweep(out_dir: Path, plots_dir: Path, ipc_list, msg_list, cons_list, mps
                 if not combo:
                     continue
 
-                tag = f"N{n_msgs}_C{n_cons}_MPS{mps}"
-
-                # CDF
-                plot_cdf(combo, n_msgs, n_cons,
-                         plots_dir / f"cdf_{tag}.png")
-
-                # Scatter per IPC
-                for ipc, cdata in combo.items():
-                    if 0 not in cdata:
-                        continue
-                    lat_file = _lat_path(out_dir, ipc, n_tag, 0)
-                    if lat_file.exists():
-                        tsc = read_tsc_ghz(out_dir, ipc, n_tag)
-                        ns  = read_latency_ns(lat_file, tsc)
-                        plot_scatter(ns, ipc, n_msgs, n_cons,
-                                     plots_dir / f"scatter_{ipc}_{tag}.png")
-
-                # Radar
-                plot_radar(combo, n_msgs, n_cons,
-                           plots_dir / f"radar_{tag}.png")
-
     write_csv(csv_out, csv_rows)
+    summary_rows = read_summary_rows(csv_out)
+    for (n_msgs, n_cons, mps), combo in build_radar_combos(summary_rows).items():
+        tag = f"N{n_msgs}_C{n_cons}_MPS{mps}"
+        plot_radar(combo, n_msgs, n_cons, mps,
+                   plots_dir / f"radar_{tag}.png")
 
 
 # ════════════════════════════════════════════════════════════════════════════

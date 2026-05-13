@@ -23,7 +23,6 @@ env/
 # Benchmark outputs and generated reports/data
 output/
 output.docx
-*.pdf
 *.tex
 *.aux
 *.log
